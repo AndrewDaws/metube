@@ -915,7 +915,7 @@ app.router.add_route('OPTIONS', config.URL_PREFIX + 'delete-cookies', add_cors)
 
 async def on_prepare(request, response):
     origin = request.headers.get('Origin')
-    if origin and _cors_origins and origin in _cors_origins:
+    if origin and _cors_origins and ('*' in _cors_origins or origin in _cors_origins):
         response.headers['Access-Control-Allow-Origin'] = origin
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
 
