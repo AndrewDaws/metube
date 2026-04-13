@@ -82,7 +82,7 @@ Certain values can be set via environment variables, using the `-e` parameter on
 * __HTTPS__: Use `https` instead of `http` (__CERTFILE__ and __KEYFILE__ required). Defaults to `false`.
 * __CERTFILE__: HTTPS certificate file path.
 * __KEYFILE__: HTTPS key file path.
-* __CORS_ALLOWED_ORIGINS__: Comma-separated list of origins permitted to make cross-origin requests to the MeTube API. When unset or empty, all cross-origin requests are denied. This must be configured for [bookmarklets](#-bookmarklet) and any other browser-based tools that contact MeTube from a different origin. Example: `https://www.youtube.com,https://www.vimeo.com`.
+* __CORS_ALLOWED_ORIGINS__: Comma-separated list of origins permitted to make cross-origin requests to the MeTube API. When unset or empty, all cross-origin requests are denied. Set to `*` to allow all origins. This must be configured for [browser extensions](#-browser-extensions), [bookmarklets](#-bookmarklet), and any other browser-based tools that contact MeTube from a different origin. For browser extensions use `*` (see below); for bookmarklets you can list specific sites, e.g. `https://www.youtube.com,https://www.vimeo.com`.
 * __ROBOTS_TXT__: A path to a `robots.txt` file mounted in the container.
 
 ### 🏠 Basic Setup
@@ -227,6 +227,8 @@ In case you need to use your browser's cookies with MeTube, for example to downl
 ## 🔌 Browser extensions
 
 Browser extensions allow right-clicking videos and sending them directly to MeTube. If you're on an HTTPS page, your MeTube instance must be behind an HTTPS reverse proxy (see below) for extensions to work.
+
+Since browser extensions make requests from their own origin (`chrome-extension://...` or `moz-extension://...`), you must set `CORS_ALLOWED_ORIGINS=*` for them to work.
 
 __Chrome:__ contributed by [Rpsl](https://github.com/rpsl). You can install it from [Google Chrome Webstore](https://chrome.google.com/webstore/detail/metube-downloader/fbmkmdnlhacefjljljlbhkodfmfkijdh) or use developer mode and install [from sources](https://github.com/Rpsl/metube-browser-extension).
 
