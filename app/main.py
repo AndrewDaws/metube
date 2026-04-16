@@ -92,6 +92,11 @@ class Config:
         if not self.URL_PREFIX.endswith('/'):
             self.URL_PREFIX += '/'
 
+        for attr in ('PUBLIC_HOST_URL', 'PUBLIC_HOST_AUDIO_URL'):
+            val = getattr(self, attr)
+            if val and not val.endswith('/'):
+                setattr(self, attr, val + '/')
+
         # Convert relative addresses to absolute addresses to prevent the failure of file address comparison
         if self.YTDL_OPTIONS_FILE and self.YTDL_OPTIONS_FILE.startswith('.'):
             self.YTDL_OPTIONS_FILE = str(Path(self.YTDL_OPTIONS_FILE).resolve())
