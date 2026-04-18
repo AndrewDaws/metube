@@ -9,6 +9,7 @@ from collections import OrderedDict
 import time
 import asyncio
 import multiprocessing
+from functools import partial
 import logging
 import re
 import types
@@ -796,9 +797,19 @@ class DownloadQueue:
             log.debug(f'Auto-clearing completed download: {url}')
             await self.clear([url])
 
-    def __extract_info(self, url):
+    def _build_ytdl_options(self, ytdl_options_presets=None, ytdl_options_overrides=None):
+        """Merge global options, presets (in order), and per-download overrides."""
+        opts = dict(self.config.YTDL_OPTIONS)
+        for preset_name in ytdl_options_presets or []:
+            opts.update(self.config.YTDL_OPTIONS_PRESETS.get(preset_name, {}))
+        opts.update(ytdl_options_overrides or {})
+        return opts
+
+    def __extract_info(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
         debug_logging = logging.getLogger().isEnabledFor(logging.DEBUG)
-        return yt_dlp.YoutubeDL(params={
+        user_opts = self._build_ytdl_options(ytdl_options_presets, ytdl_options_overrides)
+        params = {
+            **user_opts,
             'quiet': not debug_logging,
             'verbose': debug_logging,
             'no_color': True,
@@ -806,9 +817,11 @@ class DownloadQueue:
             'ignore_no_formats_error': True,
             'noplaylist': True,
             'paths': {"home": self.config.DOWNLOAD_DIR, "temp": self.config.TEMP_DIR},
-            **self.config.YTDL_OPTIONS,
-            **({'impersonate': yt_dlp.networking.impersonate.ImpersonateTarget.from_str(self.config.YTDL_OPTIONS['impersonate'])} if 'impersonate' in self.config.YTDL_OPTIONS else {}),
-        }).extract_info(url, download=False)
+        }
+        imp = user_opts.get('impersonate')
+        if imp is not None:
+            params['impersonate'] = yt_dlp.networking.impersonate.ImpersonateTarget.from_str(imp)
+        return yt_dlp.YoutubeDL(params=params).extract_info(url, download=False)
 
     def __calc_download_path(self, download_type, folder):
         base_directory = self.config.AUDIO_DOWNLOAD_DIR if download_type == 'audio' else self.config.DOWNLOAD_DIR
@@ -844,10 +857,10 @@ class DownloadQueue:
                 output = self.config.OUTPUT_TEMPLATE_CHANNEL
             sanitized = {k: _sanitize_path_component(v) for k, v in entry.items()}
             output = _resolve_outtmpl_fields(output, sanitized, ('channel',))
-        ytdl_options = dict(self.config.YTDL_OPTIONS)
-        for preset_name in getattr(dl, 'ytdl_options_presets', None) or []:
-            ytdl_options.update(self.config.YTDL_OPTIONS_PRESETS.get(preset_name, {}))
-        ytdl_options.update(getattr(dl, 'ytdl_options_overrides', {}) or {})
+        ytdl_options = self._build_ytdl_options(
+            getattr(dl, 'ytdl_options_presets', None),
+            getattr(dl, 'ytdl_options_overrides', {}) or {},
+        )
         playlist_item_limit = getattr(dl, 'playlist_item_limit', 0)
         if playlist_item_limit > 0:
             log.info(f'playlist limit is set. Processing only first {playlist_item_limit} entries')
@@ -1037,7 +1050,10 @@ class DownloadQueue:
         else:
             already.add(url)
         try:
-            entry = await asyncio.get_running_loop().run_in_executor(None, self.__extract_info, url)
+            entry = await asyncio.get_running_loop().run_in_executor(
+                None,
+                partial(self.__extract_info, url, ytdl_options_presets, ytdl_options_overrides),
+            )
         except yt_dlp.utils.YoutubeDLError as exc:
             return {'status': 'error', 'msg': str(exc)}
         return await self.__add_entry(

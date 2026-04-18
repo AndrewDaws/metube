@@ -56,7 +56,7 @@ def test_get_returns_tuple_of_lists(dq_env):
 async def test_add_single_video_goes_to_pending_when_auto_start_false(dq_env):
     notifier = AsyncMock()
 
-    def fake_extract(self, url):
+    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
         return {
             "_type": "video",
             "id": "vid1",
@@ -86,7 +86,7 @@ async def test_add_single_video_goes_to_pending_when_auto_start_false(dq_env):
 async def test_cancel_removes_from_pending(dq_env):
     notifier = AsyncMock()
 
-    def fake_extract(self, url):
+    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
         return {
             "_type": "video",
             "id": "vid1",
@@ -118,7 +118,7 @@ async def test_cancel_removes_from_pending(dq_env):
 async def test_start_pending_moves_to_queue(dq_env):
     notifier = AsyncMock()
 
-    def fake_extract(self, url):
+    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
         return {
             "_type": "video",
             "id": "vid1",
@@ -187,7 +187,7 @@ async def test_add_merges_global_preset_and_override_options(dq_env):
         "Preset B": {"writesubtitles": False, "ratelimit": 1000},
     }
 
-    def fake_extract(self, url):
+    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
         return {
             "_type": "video",
             "id": "vid2",
@@ -219,3 +219,92 @@ async def test_add_merges_global_preset_and_override_options(dq_env):
     assert queued.ytdl_opts["ratelimit"] == 1000
     assert queued.ytdl_opts["proxy"] == "http://override"
     assert queued.ytdl_opts["embed_thumbnail"] is True
+
+
+@pytest.mark.asyncio
+async def test_extract_info_preset_null_download_archive_overrides_global(dq_env):
+    """Preset download_archive:null must apply during extract_info (global archive otherwise wins first)."""
+    dq_env.YTDL_OPTIONS = {"download_archive": "/tmp/archive.txt"}
+    dq_env.YTDL_OPTIONS_PRESETS = {"NoArchive": {"download_archive": None}}
+
+    captured_params: list = []
+
+    class FakeYoutubeDL:
+        def __init__(self, params=None):
+            captured_params.append(params)
+
+        def extract_info(self, url, download=False):
+            return {
+                "_type": "video",
+                "id": "vid-archive",
+                "title": "Archive Test",
+                "url": url,
+                "webpage_url": url,
+            }
+
+    notifier = AsyncMock()
+    dq = DownloadQueue(dq_env, notifier)
+    with patch("ytdl.yt_dlp.YoutubeDL", FakeYoutubeDL):
+        result = await dq.add(
+            "https://example.com/archive-test",
+            "video",
+            "auto",
+            "any",
+            "best",
+            "",
+            "",
+            0,
+            auto_start=False,
+            ytdl_options_presets=["NoArchive"],
+        )
+
+    assert result["status"] == "ok"
+    assert len(captured_params) == 1
+    extract_params = captured_params[0]
+    assert extract_params.get("download_archive") is None
+    assert extract_params["extract_flat"] is True
+    assert extract_params["noplaylist"] is True
+
+
+@pytest.mark.asyncio
+async def test_extract_info_metube_extract_keys_win_over_preset(dq_env):
+    """MeTube's flat-extract settings must not be overridden by presets."""
+    dq_env.YTDL_OPTIONS = {}
+    dq_env.YTDL_OPTIONS_PRESETS = {
+        "TryOverride": {"extract_flat": False, "noplaylist": False},
+    }
+
+    captured_params: list = []
+
+    class FakeYoutubeDL:
+        def __init__(self, params=None):
+            captured_params.append(params)
+
+        def extract_info(self, url, download=False):
+            return {
+                "_type": "video",
+                "id": "vid-flat",
+                "title": "Flat Test",
+                "url": url,
+                "webpage_url": url,
+            }
+
+    notifier = AsyncMock()
+    dq = DownloadQueue(dq_env, notifier)
+    with patch("ytdl.yt_dlp.YoutubeDL", FakeYoutubeDL):
+        result = await dq.add(
+            "https://example.com/flat-test",
+            "video",
+            "auto",
+            "any",
+            "best",
+            "",
+            "",
+            0,
+            auto_start=False,
+            ytdl_options_presets=["TryOverride"],
+        )
+
+    assert result["status"] == "ok"
+    assert captured_params[0]["extract_flat"] is True
+    assert captured_params[0]["noplaylist"] is True

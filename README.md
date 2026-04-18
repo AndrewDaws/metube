@@ -104,6 +104,8 @@ MeTube lets you customize how [yt-dlp](https://github.com/yt-dlp/yt-dlp) behaves
 
 When a download starts, these layers are combined in order. If the same option appears in more than one layer, the more specific one wins: per-download overrides beat presets, and presets beat global options.
 
+In JSON presets and overrides, setting an option to **`null`** clears that option for that download (for example, `"download_archive": null` overrides a global archive path so the archive is not used). This follows yt-dlp’s usual meaning of `None` for that option.
+
 ### Option format
 
 yt-dlp options in MeTube are expressed as JSON objects. The keys are yt-dlp API option names, which roughly correspond to command-line flags with dashes replaced by underscores. For example, the command-line flag `--write-subs` becomes `"writesubtitles": true` in JSON.
@@ -203,6 +205,8 @@ When a download starts, the final set of yt-dlp options is built in this order:
 1. Start with **global options** (`YTDL_OPTIONS` / `YTDL_OPTIONS_FILE`).
 2. Apply each selected **preset** in order (later presets overwrite earlier ones for conflicting keys).
 3. Apply any **per-download overrides** on top (overwrite everything else for conflicting keys).
+
+MeTube always forces its own flat-extract behaviour during the initial metadata fetch (`extract_flat`, `noplaylist`, etc.); presets cannot override those keys for that phase.
 
 **Example:** Suppose your global options set `"writesubtitles": false`, but you select a preset that sets `"writesubtitles": true`. Subtitles will be written for that download because the preset overrides the global setting. If you additionally enter `{"writesubtitles": false}` in the per-download overrides field, that value wins and subtitles will not be written.
 
