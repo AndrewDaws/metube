@@ -608,6 +608,17 @@
             @if (batchImportStatus) {
               <small>{{ batchImportStatus }}</small>
             }
+            @if (importInProgress) {
+              <div class="progress mt-2" style="height: 20px;">
+                <div class="progress-bar" role="progressbar"
+                  [style.width.%]="batchImportTotal > 0 ? (batchImportCount / batchImportTotal) * 100 : 0"
+                  [attr.aria-valuenow]="batchImportCount"
+                  [attr.aria-valuemin]="0"
+                  [attr.aria-valuemax]="batchImportTotal">
+                  {{ batchImportCount }} / {{ batchImportTotal }}
+                </div>
+              </div>
+            }
           </div>
         </div>
         <div class="modal-footer">

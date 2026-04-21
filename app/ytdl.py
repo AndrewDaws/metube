@@ -1140,9 +1140,11 @@ class DownloadQueue:
             if not self.queue.exists(id):
                 log.warning(f'requested cancel for non-existent download {id}')
                 continue
-            if self.queue.get(id).started():
-                self.queue.get(id).cancel()
+            dl = self.queue.get(id)
+            if dl.started():
+                dl.cancel()
             else:
+                dl.canceled = True
                 self.queue.delete(id)
                 await self.notifier.canceled(id)
         return {'status': 'ok'}

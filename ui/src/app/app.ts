@@ -104,6 +104,8 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   batchImportModalOpen = false;
   batchImportText = '';
   batchImportStatus = '';
+  batchImportCount = 0;
+  batchImportTotal = 0;
   importInProgress = false;
   cancelImportFlag = false;
   ytDlpOptionsUpdateTime: string | null = null;
@@ -1200,41 +1202,33 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
       return;
     }
     this.importInProgress = true;
-    this.cancelImportFlag = false;
-    this.batchImportStatus = `Starting to import ${urls.length} URLs...`;
-    let index = 0;
-    const delayBetween = 1000;
-    const processNext = () => {
-      if (this.cancelImportFlag) {
-        this.batchImportStatus = `Import cancelled after ${index} of ${urls.length} URLs.`;
-        this.importInProgress = false;
-        return;
-      }
-      if (index >= urls.length) {
-        this.batchImportStatus = `Finished importing ${urls.length} URLs.`;
-        this.importInProgress = false;
-        return;
-      }
-      const url = urls[index];
-      this.batchImportStatus = `Importing URL ${index + 1} of ${urls.length}: ${url}`;
-      // Pass current selection options to backend
-      this.downloads.add(this.buildAddPayload({ url }))
-        .subscribe({
-          next: (status: Status) => {
-            if (status.status === 'error') {
-              alert(`Error adding URL ${url}: ${status.msg}`);
+    this.batchImportCount = 0;
+    this.batchImportTotal = urls.length;
+    this.batchImportStatus = `Sending ${urls.length} URLs to server...`;
+
+    const promises = urls.map(url =>
+      new Promise<void>((resolve) => {
+        this.downloads.add(this.buildAddPayload({ url })).subscribe({
+            next: (status: Status) => {
+              if (status.status === 'error') {
+                console.error(`Error adding URL ${url}: ${status.msg}`);
+              }
+              this.batchImportCount++;
+              resolve();
+            },
+            error: (err) => {
+              console.error(`Error importing URL ${url}:`, err);
+              this.batchImportCount++;
+              resolve();
             }
-            index++;
-            setTimeout(processNext, delayBetween);
-          },
-          error: (err) => {
-            console.error(`Error importing URL ${url}:`, err);
-            index++;
-            setTimeout(processNext, delayBetween);
-          }
-        });
-    };
-    processNext();
+          });
+      })
+    );
+
+    Promise.all(promises).then(() => {
+      this.batchImportStatus = `All ${urls.length} URLs sent to server.`;
+      this.importInProgress = false;
+    });
   }
 
   // Cancel the batch import process
