@@ -115,6 +115,49 @@ async def test_cancel_removes_from_pending(dq_env):
 
 
 @pytest.mark.asyncio
+async def test_cancel_before_start_marks_download_canceled(dq_env):
+    """Regression test for the race condition where cancel() arrives after the
+    download has been placed in the queue and ``__start_download`` has been
+    scheduled via ``asyncio.create_task`` but has not yet executed. Without the
+    fix, the pending task would run ``download.start()`` despite the user
+    cancelling, because its ``download.canceled`` guard was never flipped."""
+    notifier = AsyncMock()
+
+    def fake_extract(self, url, ytdl_options_presets=None, ytdl_options_overrides=None):
+        return {
+            "_type": "video",
+            "id": "vid1",
+            "title": "Test Video",
+            "url": url,
+            "webpage_url": url,
+        }
+
+    dq = DownloadQueue(dq_env, notifier)
+    url = "https://example.com/race"
+    start_mock = AsyncMock()
+    with patch.object(DownloadQueue, "_DownloadQueue__extract_info", fake_extract), \
+         patch.object(DownloadQueue, "_DownloadQueue__start_download", start_mock):
+        await dq.add(
+            url,
+            "video",
+            "auto",
+            "any",
+            "best",
+            "",
+            "",
+            0,
+            auto_start=True,
+        )
+        assert dq.queue.exists(url)
+        download = dq.queue.get(url)
+        assert download.canceled is False
+        await dq.cancel([url])
+        assert not dq.queue.exists(url)
+        assert download.canceled is True
+        notifier.canceled.assert_awaited_with(url)
+
+
+@pytest.mark.asyncio
 async def test_start_pending_moves_to_queue(dq_env):
     notifier = AsyncMock()
 

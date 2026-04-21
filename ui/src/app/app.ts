@@ -1,7 +1,7 @@
 import { AsyncPipe, DatePipe, KeyValuePipe, NgTemplateOutlet } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { AfterViewInit, ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, ElementRef, viewChild, inject, OnDestroy, OnInit } from '@angular/core';
-import { Observable, Subscription, map, distinctUntilChanged, finalize } from 'rxjs';
+import { Observable, Subject, Subscription, from, map, distinctUntilChanged, finalize, mergeMap, takeUntil, tap } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
@@ -106,8 +106,13 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   batchImportStatus = '';
   batchImportCount = 0;
   batchImportTotal = 0;
+  batchImportFailures = 0;
   importInProgress = false;
-  cancelImportFlag = false;
+  private batchImportCancel$ = new Subject<void>();
+  // Maximum number of /add requests to have in-flight at once during a batch
+  // import. Keeps the server from being hit with hundreds of simultaneous
+  // yt-dlp metadata extractions when a user pastes a huge URL list.
+  private static readonly BATCH_IMPORT_CONCURRENCY = 4;
   ytDlpOptionsUpdateTime: string | null = null;
   ytDlpVersion: string | null = null;
   metubeVersion: string | null = null;
@@ -1175,8 +1180,10 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
     this.batchImportModalOpen = true;
     this.batchImportText = '';
     this.batchImportStatus = '';
+    this.batchImportCount = 0;
+    this.batchImportTotal = 0;
+    this.batchImportFailures = 0;
     this.importInProgress = false;
-    this.cancelImportFlag = false;
     setTimeout(() => {
       const textarea = document.getElementById('batch-import-textarea');
       if (textarea instanceof HTMLTextAreaElement) {
@@ -1203,39 +1210,62 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
     }
     this.importInProgress = true;
     this.batchImportCount = 0;
+    this.batchImportFailures = 0;
     this.batchImportTotal = urls.length;
-    this.batchImportStatus = `Sending ${urls.length} URLs to server...`;
+    this.updateBatchImportStatus();
 
-    const promises = urls.map(url =>
-      new Promise<void>((resolve) => {
-        this.downloads.add(this.buildAddPayload({ url })).subscribe({
-            next: (status: Status) => {
-              if (status.status === 'error') {
-                console.error(`Error adding URL ${url}: ${status.msg}`);
-              }
-              this.batchImportCount++;
-              resolve();
-            },
-            error: (err) => {
-              console.error(`Error importing URL ${url}:`, err);
-              this.batchImportCount++;
-              resolve();
+    from(urls).pipe(
+      mergeMap(
+        url => this.downloads.add(this.buildAddPayload({ url })).pipe(
+          // downloads.add() already catches HTTP errors and emits a single
+          // Status value, so `tap` (not `finalize`) is the right place to
+          // count. This avoids incrementing the counter when an in-flight
+          // request is aborted by cancellation.
+          tap((status: Status) => {
+            if (status.status === 'error') {
+              this.batchImportFailures++;
+              console.error(`Error adding URL ${url}: ${status.msg}`);
             }
-          });
-      })
-    );
-
-    Promise.all(promises).then(() => {
-      this.batchImportStatus = `All ${urls.length} URLs sent to server.`;
-      this.importInProgress = false;
-    });
+            this.batchImportCount++;
+            this.updateBatchImportStatus();
+            this.cdr.markForCheck();
+          }),
+        ),
+        App.BATCH_IMPORT_CONCURRENCY,
+      ),
+      takeUntil(this.batchImportCancel$),
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => {
+        this.importInProgress = false;
+        this.updateBatchImportStatus(true);
+        this.cdr.markForCheck();
+      }),
+    ).subscribe();
   }
 
-  // Cancel the batch import process
+  private updateBatchImportStatus(done = false): void {
+    const parts: string[] = [];
+    if (done) {
+      const processed = this.batchImportCount;
+      if (processed < this.batchImportTotal) {
+        parts.push(`Import cancelled after ${processed} of ${this.batchImportTotal} URLs.`);
+      } else {
+        parts.push(`Finished importing ${this.batchImportTotal} URLs.`);
+      }
+    } else {
+      parts.push(`Importing ${this.batchImportCount} of ${this.batchImportTotal} URLs...`);
+    }
+    if (this.batchImportFailures > 0) {
+      parts.push(`${this.batchImportFailures} failed.`);
+    }
+    this.batchImportStatus = parts.join(' ');
+  }
+
+  // Cancel the batch import process: aborts in-flight and pending requests
+  // immediately via the cancellation Subject wired into the pipeline.
   cancelBatchImport(): void {
     if (this.importInProgress) {
-      this.cancelImportFlag = true;
-      this.batchImportStatus += ' Cancelling...';
+      this.batchImportCancel$.next();
     }
   }
 

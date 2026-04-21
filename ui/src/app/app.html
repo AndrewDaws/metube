@@ -608,10 +608,12 @@
             @if (batchImportStatus) {
               <small>{{ batchImportStatus }}</small>
             }
-            @if (importInProgress) {
+            @if (batchImportTotal > 0) {
               <div class="progress mt-2" style="height: 20px;">
-                <div class="progress-bar" role="progressbar"
-                  [style.width.%]="batchImportTotal > 0 ? (batchImportCount / batchImportTotal) * 100 : 0"
+                <div class="progress-bar"
+                  [class.bg-danger]="batchImportFailures > 0"
+                  role="progressbar"
+                  [style.width.%]="(batchImportCount / batchImportTotal) * 100"
                   [attr.aria-valuenow]="batchImportCount"
                   [attr.aria-valuemin]="0"
                   [attr.aria-valuemax]="batchImportTotal">
